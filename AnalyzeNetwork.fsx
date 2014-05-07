@@ -26,7 +26,7 @@ open System
 open System.IO
 open System.Collections.Generic
 
-// Load data from JSON format
+// Listing 6 - Loading JSON data with type providers
 // ===================================================
 
 let dataDirectory = @"C:\Users\Public\Documents\Projects\SocialNetworkAnalysis\data\"
@@ -39,7 +39,7 @@ let userNames = Users.Load nodeFile
 type Connections = JsonProvider<"C:\\Users\\Public\\Documents\\Projects\\SocialNetworkAnalysis\\data\\fsharporgLinks.json">
 let userLinks = Connections.Load linkFile
 
-// Helper functions
+// Listing 7 - Helper functions for Twitter IDs
 // ===================================================
 // Read ID numbers and screen names of accounts in @fsharporg network
 // To facilitate easy translation between the two
@@ -73,7 +73,7 @@ let nameToIdx screenName =
 nameToIdx "dsyme"
 idxToIdName 213
 
-// Links in the Twitter network
+// Listing 8 - Sparse incidence matrix
 // ===================================================
 
 // Read links in the @fsharporg network into an incidence matrix
@@ -82,22 +82,25 @@ let links =
     seq { for link in userLinks.Links -> link.Source, link.Target, 1.0 }
     |> SparseMatrix.ofSeqi nodeCount nodeCount
 
-// Degree distribution
+// Listing 9 - Out-degree and in-degree
 // ===================================================
 
 let outdegree (linkMatrix:float Matrix) =
     [| for outlinks in linkMatrix.EnumerateRows() -> outlinks.Sum() |]   
 
-let outdegreeFaster (linkMatrix: float Matrix) =
-    linkMatrix * DenseMatrix.Create(linkMatrix.RowCount, 1, 1.0)
-
 let indegree (linkMatrix: float Matrix) =
     [| for inlinks in linkMatrix.EnumerateColumns() -> inlinks.Sum() |]
 
+let degree linkMatrix = Array.map2 (+) (outdegree linkMatrix) (indegree linkMatrix)
+
+// Listing 10  - In-degree and out-degree with matrix multiplication
+// ====================================================================
+
+let outdegreeFaster (linkMatrix: float Matrix) =
+    linkMatrix * DenseMatrix.Create(linkMatrix.RowCount, 1, 1.0)
+
 let indegreeFaster (linkMatrix: float Matrix) =
     DenseMatrix.Create(1, linkMatrix.ColumnCount, 1.0) * linkMatrix
-
-let degree linkMatrix = Array.map2 (+) (outdegree linkMatrix) (indegree linkMatrix)
 
 #time
 let indegrees = indegree links
@@ -106,23 +109,27 @@ outdegreeFaster links
 
 let degrees = degree links
 
+// Listing 11 - Top users from a ranking
+// ===================================================
+// Find top ranking users
+let topUsers (ranking:float seq) count = 
+    ranking
+    |> Seq.mapi (fun i x -> (i,x))
+    |> Seq.sortBy (fun (i,x) -> - x)
+    |> Seq.take count
+    |> Seq.map (fun (i,x) -> 
+        let id, name = idxToIdName i
+        (id, name, x))
+
+// Get a list of people that have most followers
+topUsers indegrees 100
+|> Seq.iteri (fun i (id, name, value) ->
+    printfn "%d. %s has indegree %.0f" (i+1) name value)    
+
+// Listing 12 - Degree distribution of nodes
+// ==============================================
 // Visualize degree distribution with R provider
 R.plot(indegrees)
-
-let plotHist values title xlab =
-    namedParams [
-        "x", box values; 
-        "breaks", box 40;
-        "col", box "steelblue";
-        "main", box title;
-        "xlab", box xlab;
-        "ylab", box "frequency"
-        ]
-    |> R.hist
-    
-plotHist indegrees "Indegree distribution" "Indegree"
-plotHist outdegrees "Outdegree distribution" "Outdegree" 
-plotHist degrees "Undirected degree distribution" "Indegree + Outdegree"
 
 // Log-log plot of degree distribution
 let degreeDist ds = ds |> Seq.countBy id
@@ -141,23 +148,8 @@ namedParams [
     "ylab", box "Log frequency" ]
     |> R.plot
 
-// Find top ranking users
-let topUsers (ranking:float seq) count = 
-    ranking
-    |> Seq.mapi (fun i x -> (i,x))
-    |> Seq.sortBy (fun (i,x) -> - x)
-    |> Seq.take count
-    |> Seq.map (fun (i,x) -> 
-        let id, name = idxToIdName i
-        (id, name, x))
 
-// Get a list of people that have most followers
-topUsers indegrees 100
-|> Seq.iteri (fun i (id, name, value) ->
-    printfn "%d. %s has indegree %.0f" (i+1) name value)    
-
-
-// PageRank (Eigenvalue centrality measure)
+// Listing 13 - Transition matrix
 // ===================================================
 
 // Transition matrix - gives transition probabilities
@@ -183,7 +175,7 @@ let transitionMatrix =
             else row }
     |> SparseMatrix.ofRowSeq
 
-// PageRank using MapReduce
+// Listing 14 - Mapper and reducer functions
 // ===================================================
 // MapReduce in steps
 // 1) Map 
@@ -206,6 +198,8 @@ let reducer nodeCount (mapperOut: (int*float) seq) =
         d * inRankSum + (1.0-d)/(float nodeCount))
     |> Seq.toArray
 
+// Listing 15 - PageRank algorithm
+// ===========================================================
 // Create a vector to hold the page rank values
 // and initialize with equal values (1/number of nodes)
 // (equal probability of being in any node in the network)
@@ -248,38 +242,7 @@ topUsers pageRankValues 100
 |> Seq.iteri (fun i (id, name, value) ->
     printfn "%d. %s has PageRank %f" (i+1) name value)    
 
-plotHist pageRankValues "PageRank distribution" "PageRank values"
-
-// Additional material
-// ===========================================
-// Compute average followers' rank for each user (node)
-let averageFollowerRanking (ranking: float []) = 
-    seq { for (src, tgt, p) in transitionMatrix.EnumerateNonZeroIndexed() do
-            yield (tgt, ranking.[src]) 
-          for node in 0..nodeCount-1 do
-            yield (node, 0.0) }
-    |> Seq.groupBy fst
-    |> Seq.sortBy fst
-    |> Seq.map (fun (node, followers) ->
-        (Seq.sumBy snd followers)/(float (Seq.length followers) - 1.0))
-    |> Seq.toArray
-        
-let avgFollowerPageRank = averageFollowerRanking pageRankValues
-let avgFollowerIndegree = averageFollowerRanking indegrees
-
-avgFollowerPageRank
-|> Array.mapi (fun i d -> i,d)
-|> Array.sortBy snd
-|> Array.map (fun (i,d) -> idxToIdName i, d)
-|> Array.rev
-
-avgFollowerIndegree.[nameToIdx "LincolnAtkinson"]
-avgFollowerIndegree.[nameToIdx "migueldeicaza"]
-Array.average avgFollowerIndegree
-
-
-// Visualize the Twitter network - generate JSON file for D3.js
-// with PageRank values
+// Listing 16 - JSON file for nodes with PageRank information
 // ==========================================================
 
 let jsonUsersPR userIdx userPR = 

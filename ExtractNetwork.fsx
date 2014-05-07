@@ -17,7 +17,7 @@ open FSharp.Data.Toolbox.Twitter
 let currentDirectory = ""
 Directory.SetCurrentDirectory currentDirectory
 
-// Connect to Twitter
+// Listing 1 - Connecting to Twitter
 // ==================================================
 
 // Application credentials
@@ -46,20 +46,9 @@ followers.Ids |> Seq.length
 
 // Create a set of accounts around @fsharporg with a test for inclusion
 let idsOfInterest = Seq.append friends.Ids followers.Ids |> set
-let isInNetwork id = idsOfInterest.Contains id
 
-// Helper functions to translate between Twitter IDs to zero-based indices
-let idxToId, idToIdx =
-    let idxList, idList =
-        idsOfInterest
-        |> Seq.mapi (fun idx id -> (idx,id), (id, idx))
-        |> Seq.toList
-        |> List.unzip
-    dict idxList, dict idList
-
-// Get screen names of accounts
+// Listing 2 - Twitter screen names from user ID numbers 
 // ==================================================
-let nodeFilename = @"fsharporgNodes.json"
 
 // One lookup request for up to 100 users
 // limitted to 180 requests per 15 minutes (with full authentication)
@@ -81,30 +70,14 @@ let twitterNodes =
             |> Array.map (fun node -> node.Id, node.ScreenName)
         yield! nodeInfo |]
     
-// Save downloaded information about Twitter accounts in JSON format
-let jsonNode (userInfo: int64*string) = 
-    let id, name = userInfo
-    JsonValue.Record [| 
-            "name", JsonValue.String name
-            "id", JsonValue.Number (decimal id) |] 
-
-let jsonNodes = 
-    let nodes = twitterNodes |> Array.map jsonNode
-    [|"nodes", (JsonValue.Array nodes) |]
-    |> JsonValue.Record
-File.WriteAllText("fsharporgNodes.json", jsonNodes.ToString())
-
-// Get links between accounts
+// Listing 3 - Twitter connections between users
 // ==================================================
 
-// for every friend, look if he/she's a friend with someone on the list
-// Twitter limits : 15 requests every 15 minutes for application access
-// https://dev.twitter.com/docs/rate-limiting/1.1/limits
-
-// Beware, downloading Twitter connections is a long process due to the 
+// Beware, downloading Twitter connections is a long process due to 
 // access rate limits. I recommend running this on a server with a stable 
 // internet connection. 
 
+let isInNetwork id = idsOfInterest.Contains id
 
 // Get connections from Twitter
 let twitterConnections (ids:int64 seq) =
@@ -122,6 +95,31 @@ let twitterConnections (ids:int64 seq) =
                 [||]      
         // return source and target
         yield! connections |> Seq.map (fun tgtId -> srcId, tgtId)|]
+
+
+// Listing 4 - Export network’s nodes into JSON
+// =====================================================
+
+let jsonNode (userInfo: int64*string) = 
+    let id, name = userInfo
+    JsonValue.Record [| 
+            "name", JsonValue.String name
+            "id", JsonValue.Number (decimal id) |] 
+
+let jsonNodes = 
+    let nodes = twitterNodes |> Array.map jsonNode
+    [|"nodes", (JsonValue.Array nodes) |]
+    |> JsonValue.Record
+File.WriteAllText("fsharporgNodes.json", jsonNodes.ToString())
+
+// Listing 5 - Export network’s links into JSON
+// ======================================================
+
+// Helper functions to translate between Twitter IDs to zero-based indices
+let idToIdx =
+    idsOfInterest 
+    |> Seq.mapi (fun idx id -> (id, idx))
+    |> dict
 
 // Save links in JSON format
 let jsonConnections (srcId, tgtId) = 
