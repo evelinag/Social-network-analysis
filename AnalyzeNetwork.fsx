@@ -73,10 +73,10 @@ let nameToIdx screenName =
 nameToIdx "dsyme"
 idxToIdName 213
 
-// Listing 8 - Sparse incidence matrix
+// Listing 8 - Sparse adjacency matrix
 // ===================================================
 
-// Read links in the @fsharporg network into an incidence matrix
+// Read links in the @fsharporg network into an adjacency matrix
 let nodeCount = userNames.Nodes.Length
 let links = 
     seq { for link in userLinks.Links -> link.Source, link.Target, 1.0 }
